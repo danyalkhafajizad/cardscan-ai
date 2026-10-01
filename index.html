@@ -1,0 +1,99 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'><meta name='theme-color' content='#111827'><link rel='manifest' href='manifest.webmanifest'><link rel='apple-touch-icon' href='icon.svg'><title>CardScan AI v3.2</title><script src='https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js'></script><style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;background:#f4f5f7;color:#111827}*{box-sizing:border-box}body{margin:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}header{padding:18px 18px 12px;background:#111827;color:white;position:sticky;top:0;z-index:2}header h1{margin:0;font-size:24px}header small{opacity:.75}.tabs{display:flex;background:white;border-bottom:1px solid #ddd;position:sticky;top:72px;z-index:2}.tabs button{flex:1;border:0;background:white;padding:13px 6px;font-weight:600}.tabs button.active{color:#2563eb;border-bottom:3px solid #2563eb}main{max-width:680px;margin:auto;padding:16px}.card{background:white;border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px #0000000d}h2{font-size:20px;margin:0 0 12px}label{font-size:12px;color:#6b7280;display:block;margin-top:10px}input,textarea{width:100%;font:inherit;padding:11px;border:1px solid #d1d5db;border-radius:10px;background:white}textarea{min-height:82px}.primary,.secondary,.danger{border:0;border-radius:12px;padding:12px 14px;font-weight:700;font-size:15px}.primary{background:#2563eb;color:white}.secondary{background:#e5e7eb;color:#111827}.danger{background:#fee2e2;color:#991b1b}.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1}.hidden{display:none!important}.preview{width:100%;max-height:250px;object-fit:contain;border-radius:12px;background:#eee}.contact{padding:13px 0;border-bottom:1px solid #eee}.contact:last-child{border:0}.contact b{display:block}.muted{color:#6b7280;font-size:13px}.empty{text-align:center;color:#6b7280;padding:30px 10px}.pill{display:inline-block;background:#eef2ff;padding:4px 8px;border-radius:99px;margin:4px 4px 0 0;font-size:12px}#toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);background:#111827;color:white;padding:10px 14px;border-radius:10px;display:none;z-index:9}
+</style></head><body><header><h1>CardScan AI</h1><small>v3.2 · Multi-orientation + dark-card OCR</small></header><nav class='tabs'><button data-tab='scan' class='active'>Scan</button><button data-tab='contacts'>Contacts</button><button data-tab='search'>Search</button><button data-tab='backup'>Backup</button></nav><main>
+<section id='scan'><div class='card'><h2>Scan a business card</h2><p class='muted'>Take a clear photo. V3.2 checks light/dark text and multiple orientations, then extracts contact fields. Your saved contact database stays in this browser.</p><input id='photo' type='file' accept='image/*' capture='environment'><img id='preview' class='preview hidden' alt='Business card preview'><div id='ocrBox' class='hidden' style='margin-top:12px'><button class='primary' id='recognize' style='width:100%'>Recognize Card</button><div id='ocrStatus' class='muted' style='margin-top:8px'></div><progress id='ocrProgress' max='1' value='0' style='width:100%;display:none'></progress></div></div><div id='formCard' class='card hidden'><h2>Review contact</h2><div class='row'><div><label>First name</label><input id='first'></div><div><label>Last name</label><input id='last'></div></div><label>Company</label><input id='company'><label>Job title</label><input id='title'><label>Email</label><input id='email' inputmode='email'><label>Phone / Main</label><input id='phone' inputmode='tel'><div class='row'><div><label>Mobile / Cell</label><input id='mobile' inputmode='tel'></div><div><label>Direct</label><input id='direct' inputmode='tel'></div></div><label>Website</label><input id='website' inputmode='url'><label>Address</label><textarea id='address'></textarea><label>Met at / Event</label><input id='metAt' placeholder='e.g. IBIE 2026'><label>Tags</label><input id='tags' placeholder='e.g. packaging, ovens, vendor'><label>Notes</label><textarea id='notes' placeholder='What did you discuss?'></textarea><details style='margin-top:12px'><summary class='muted'>OCR text</summary><textarea id='rawText' readonly></textarea></details><div class='row' style='margin-top:14px'><button class='primary' id='save'>Save Contact</button><button class='secondary' id='clear'>Clear</button></div></div></section>
+<section id='contacts' class='hidden'><div class='card'><h2>Contacts</h2><div id='contactList'></div></div></section>
+<section id='search' class='hidden'><div class='card'><h2>Search</h2><input id='query' placeholder='Name, company, event, tag or note'><p class='muted'>Example: “chiffon cake oven” or “IBIE packaging”.</p><div id='results'></div></div></section>
+<section id='backup' class='hidden'><div class='card'><h2>Backup & transfer</h2><p class='muted'>Export your database periodically. Safari website data can be removed by iOS settings or browser cleanup.</p><div class='row'><button class='primary' id='export'>Export Backup</button><label class='secondary' style='text-align:center;margin:0'>Import Backup<input id='import' type='file' accept='application/json' style='display:none'></label></div></div><div class='card'><h2>Install on Home Screen</h2><p>Open this site in Safari, tap <b>Share</b>, choose <b>Add to Home Screen</b>, then tap <b>Add</b>.</p></div></section>
+</main><div id='toast'></div><script>
+const $=id=>document.getElementById(id);let photoData='',photoFile=null,ocrWorker=null;const fields=['first','last','company','title','email','phone','mobile','direct','website','address','metAt','tags','notes'];
+function db(){try{return JSON.parse(localStorage.getItem('cardscan_contacts')||'[]')}catch{return[]}}function setdb(x){localStorage.setItem('cardscan_contacts',JSON.stringify(x))}function toast(s){$('toast').textContent=s;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1800)}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x===b));['scan','contacts','search','backup'].forEach(x=>$(x).classList.toggle('hidden',x!==b.dataset.tab));if(b.dataset.tab==='contacts')renderContacts();if(b.dataset.tab==='search')renderSearch()});
+$('photo').onchange=e=>{let f=e.target.files[0];if(!f)return;photoFile=f;let r=new FileReader;r.onload=()=>{photoData=r.result;$('preview').src=photoData;$('preview').classList.remove('hidden');$('ocrBox').classList.remove('hidden');$('formCard').classList.add('hidden');$('ocrStatus').textContent='Ready to recognize the card.';toast('Photo captured — tap Recognize Card')};r.readAsDataURL(f)};
+function clearForm(){fields.forEach(x=>$(x).value='');$('rawText').value='';photoData='';photoFile=null;$('preview').src='';$('preview').classList.add('hidden');$('ocrBox').classList.add('hidden');$('formCard').classList.add('hidden');$('photo').value='';$('ocrStatus').textContent='';$('ocrProgress').style.display='none'}$('clear').onclick=clearForm;
+
+function cleanLine(s){return s.replace(/[|•]/g,' ').replace(/[\u2018\u2019]/g,"'").replace(/\s+/g,' ').trim()}
+function normalizeOCR(s){return cleanLine(s).replace(/\s+([@.,])/g,'$1').replace(/([@.])\s+/g,'$1')}
+function looksName(s){
+  let w=s.split(/\s+/), particles=/^(de|del|da|di|du|la|le|van|von|der|den|ter|ten|dos|das)$/i;
+  if(w.length<2||w.length>6||s.length>55)return false;
+  if(/\d|@|www|\.com|inc\b|llc\b|corp\b|company|group|systems|solutions|equipment|industrial|manufactur|calibration|services|sales|repair|certification|president|foreman|manager|director|engineer/i.test(s))return false;
+  return w.every(x=>particles.test(x)||/^[A-Za-z][A-Za-z.'-]*$/.test(x));
+}
+function scoreName(s){
+  let n=0,w=s.split(/\s+/);if(looksName(s))n+=7;
+  if(w.length>=2&&w.length<=5)n+=2;
+  if(/^[A-Z][A-Z.'-]+(?:\s+(?:de|del|da|di|van|von|der|den|[A-Z][A-Z.'-]+)){1,4}$/i.test(s))n+=2;
+  if(/^[A-Z][a-z]+(?:\s+(?:[A-Z]\.|de|del|da|di|van|von|der|den|[A-Z][a-z.'-]+)){1,4}$/.test(s))n+=3;
+  if(/family owned|since|street|road|avenue|usa|iso|iec/i.test(s))n-=8;return n;
+}
+function parseCard(text){
+  let lines=text.split(/\n+/).map(normalizeOCR).filter(Boolean);
+  // de-duplicate lines from multi-pass OCR while preserving first-seen order
+  let seen=new Set();lines=lines.filter(x=>{let k=x.toLowerCase().replace(/[^a-z0-9@.]+/g,' ');if(seen.has(k))return false;seen.add(k);return true});
+  let joined=lines.join('\n');
+  let email=(joined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0]||'';
+  const domainRx=/(?:https?:\/\/)?(?:www\.)?(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:com|net|org|io|co\.uk|co|us|biz|tech|ai|de|fr|it|ca|au|uk)(?:\/[^\s]*)?/i;
+  let webCandidates=[];for(let x of lines){let y=x.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,' '),m=y.match(domainRx);if(m)webCandidates.push(m[0].replace(/[),;:]+$/,''))}let website=webCandidates[0]||'';
+  const phoneRx=/(?:\+?1[\s.()-]*)?(?:\(?\d{3}\)?[\s.-]*)\d{3}[\s.-]*\d{4}/g;
+  let labeled={main:'',mobile:'',direct:'',other:[]};
+  for(let x of lines){let ms=x.match(phoneRx)||[];for(let m of ms){m=m.trim();if(/\b(cell|mobile|mob)\b/i.test(x)&&!labeled.mobile)labeled.mobile=m;else if(/\bdirect\b/i.test(x)&&!labeled.direct)labeled.direct=m;else if(/\b(main|phone|office|tel)\b/i.test(x)&&!labeled.main)labeled.main=m;else labeled.other.push(m)}}
+  let allPhones=joined.match(phoneRx)||[];let phone=labeled.main||allPhones.find(x=>x!==labeled.mobile&&x!==labeled.direct)||allPhones[0]||'';
+  let mobile=labeled.mobile||'',direct=labeled.direct||'';
+  const titleRx=/\b(president|owner|founder|ceo|chief|vice president|vp|director|manager|foreman|engineer|engineering manager|sales|account manager|specialist|consultant|representative|coordinator|supervisor|technician|executive|officer|partner)\b/i;
+  let nameLine=lines.slice().sort((a,b)=>scoreName(b)-scoreName(a))[0]||'';if(scoreName(nameLine)<7)nameLine='';
+  let nameParts=nameLine.split(/\s+/),first=nameParts.shift()||'',last=nameParts.join(' ');
+  let title=lines.find(x=>titleRx.test(x)&&x!==nameLine&&x.length<60)||'';
+  const isWebsiteLine=x=>domainRx.test(x.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,' '));
+  const isPhoneLine=x=>phoneRx.test(x); phoneRx.lastIndex=0;
+  const exclude=x=>x===nameLine||x===title||x===email||x.includes('@')||isWebsiteLine(x)||isPhoneLine(x)||/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/.test(x);
+  const companyRx=/(inc\.?|llc|ltd\.?|corp\.?|corporation|company|group|systems|solutions|technologies|technology|engineering|equipment|industries|industrial|foods|bakery|automation|manufacturing|america|americas|machine|scale|calibration|services)/i;
+  let company=lines.find(x=>!exclude(x)&&companyRx.test(x)&&x.length<70&&!/family owned|sales.*repair/i.test(x))||'';
+  if(company&&/industrial washing|handling equipment|manufactur/i.test(company)){let alt=lines.find(x=>!exclude(x)&&/america|americas|inc|llc|corp|company|group/i.test(x));if(alt)company=alt}
+  if(!company&&email){let dom=email.split('@')[1].split('.')[0].replace(/[-_]/g,' ');let hit=lines.find(x=>!exclude(x)&&x.toLowerCase().replace(/[^a-z0-9]/g,'').includes(dom.toLowerCase().replace(/[^a-z0-9]/g,'')));if(hit)company=hit}
+  if(!company){let idx=lines.indexOf(nameLine);company=lines.slice(Math.max(0,idx-4),idx+6).find(x=>!exclude(x)&&!titleRx.test(x)&&x.length<45&&/[A-Za-z]/.test(x))||''}
+  const cityStateZipRx=/\b[A-Za-z][A-Za-z .'-]+,?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?(?:,?\s*USA)?\b/i;
+  const stateZipRx=/\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/i;
+  const streetRx=/\b\d{1,6}\s+[A-Za-z0-9.'# -]+\b(?:st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pkwy|parkway|hwy|highway|pl|place|cir|circle|hill)(?:\s+(?:st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ln|lane|way|ct|court|ste\.?|suite)\s*[A-Za-z0-9-]+)?/i;
+  let addr=[];for(let i=0;i<lines.length;i++){let x=lines[i];if(cityStateZipRx.test(x)){if(i&&streetRx.test(lines[i-1]))addr.push(lines[i-1]);addr.push(x)}else if(stateZipRx.test(x)){if(i&&streetRx.test(lines[i-1]))addr.push(lines[i-1]);else if(i&&/^[A-Za-z][A-Za-z .'-]{1,40}$/.test(lines[i-1])&&!exclude(lines[i-1]))addr.push(lines[i-1]);addr.push(x)}else if(streetRx.test(x)){addr.push(x);if(i+1<lines.length&&stateZipRx.test(lines[i+1]))addr.push(lines[i+1])}}
+  // Preserve certifications and descriptive/service lines as useful notes.
+  let useful=lines.filter(x=>/\b(?:ISO\/?IEC|ISO\s*\d|certification|calibration|sales|repair|laboratory|weighing|torque|temperature|flow)\b/i.test(x)&&x!==company&&x!==title);
+  let notes=[...new Set(useful)].join('\n');
+  return {first,last,company,title,email,phone,mobile,direct,website,address:[...new Set(addr)].join('\n'),notes};
+}
+async function preprocessImage(file){
+  let bmp=await createImageBitmap(file),w=bmp.width,h=bmp.height,max=2000,scale=Math.min(1,max/Math.max(w,h)),cw=Math.round(w*scale),ch=Math.round(h*scale);
+  let c=document.createElement('canvas');c.width=cw;c.height=ch;let ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0,cw,ch);
+  // Keep conservative crop logic so dark cards are not accidentally cropped away.
+  let im=ctx.getImageData(0,0,cw,ch),d=im.data,lum=new Uint8Array(cw*ch);for(let i=0,j=0;i<d.length;i+=4,j++)lum[j]=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;
+  let row=new Float64Array(ch),col=new Float64Array(cw);for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){let v=lum[y*cw+x];row[y]+=v;col[x]+=v}for(let y=0;y<ch;y++)row[y]/=cw;for(let x=0;x<cw;x++)col[x]/=ch;
+  let rmin=Math.min(...row),rmax=Math.max(...row),cmin=Math.min(...col),cmax=Math.max(...col),ct=(rmin+rmax)*.52,xt=(cmin+cmax)*.52,ys=[],xs=[];for(let y=0;y<ch;y++)if(row[y]>ct)ys.push(y);for(let x=0;x<cw;x++)if(col[x]>xt)xs.push(x);
+  let x0=xs.length?Math.max(0,xs[0]-16):0,x1=xs.length?Math.min(cw-1,xs[xs.length-1]+16):cw-1,y0=ys.length?Math.max(0,ys[0]-16):0,y1=ys.length?Math.min(ch-1,ys[ys.length-1]+16):ch-1;
+  if((x1-x0)<cw*.5||(y1-y0)<ch*.25){x0=0;y0=0;x1=cw-1;y1=ch-1}
+  let out=document.createElement('canvas'),ow=x1-x0+1,oh=y1-y0+1,up=Math.min(2.1,2300/Math.max(ow,oh));out.width=Math.round(ow*up);out.height=Math.round(oh*up);out.getContext('2d').drawImage(c,x0,y0,ow,oh,0,0,out.width,out.height);return out;
+}
+function variantCanvas(src,invert=false,rotate=0){
+  let out=document.createElement('canvas');if(rotate){out.width=src.height;out.height=src.width}else{out.width=src.width;out.height=src.height}let o=out.getContext('2d',{willReadFrequently:true});if(rotate){o.translate(out.width/2,out.height/2);o.rotate(rotate*Math.PI/180);o.drawImage(src,-src.width/2,-src.height/2)}else o.drawImage(src,0,0);
+  let im=o.getImageData(0,0,out.width,out.height),d=im.data,avg=0;for(let i=0;i<d.length;i+=4)avg+=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;avg/=d.length/4;
+  for(let i=0;i<d.length;i+=4){let g=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;g=(g-128)*1.45+145;if(invert)g=255-g;g=Math.max(0,Math.min(255,g));d[i]=d[i+1]=d[i+2]=g}o.putImageData(im,0,0);return out;
+}
+async function ocrPass(canvas,label){$('ocrStatus').textContent=label;if(!ocrWorker)ocrWorker=await Tesseract.createWorker('eng',1,{logger:m=>{if(typeof m.progress==='number')$('ocrProgress').value=m.progress}});await ocrWorker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});let r=await ocrWorker.recognize(canvas);return r.data.text||''}
+$('recognize').onclick=async()=>{
+  if(!photoFile)return;$('recognize').disabled=true;$('ocrProgress').style.display='block';$('ocrProgress').value=0;$('ocrStatus').textContent='Preparing card…';
+  try{
+    if(!window.Tesseract)throw new Error('OCR library could not load. Check your internet connection.');
+    let base=await preprocessImage(photoFile),normal=variantCanvas(base,false,0),inverted=variantCanvas(base,true,0),rot90=variantCanvas(base,false,90),rot270=variantCanvas(base,false,-90);
+    $('preview').src=normal.toDataURL('image/jpeg',.9);
+    let texts=[];texts.push(await ocrPass(normal,'Reading normal orientation…'));texts.push(await ocrPass(inverted,'Checking dark/light text…'));texts.push(await ocrPass(rot90,'Checking rotated text…'));texts.push(await ocrPass(rot270,'Checking opposite rotation…'));
+    let text=texts.filter(Boolean).join('\n');$('rawText').value=text;let parsed=parseCard(text);Object.entries(parsed).forEach(([k,v])=>{if($(k)&&v)$(k).value=v});$('formCard').classList.remove('hidden');$('ocrStatus').textContent='Recognition complete. Review the contact fields before saving.';toast('Card recognized — review the details');
+  }catch(err){$('formCard').classList.remove('hidden');$('ocrStatus').textContent='OCR failed: '+(err.message||err)+'. You can still enter the contact manually.';toast('OCR failed — manual entry is available')}finally{$('recognize').disabled=false;$('ocrProgress').style.display='none'}
+};
+
+$('save').onclick=()=>{let c={id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),created:new Date().toISOString(),photo:photoData};fields.forEach(x=>c[x]=$(x).value.trim());if(!c.first&&!c.last&&!c.company){toast('Enter at least a name or company');return}let d=db();d.unshift(c);setdb(d);clearForm();toast('Contact saved')};
+function card(c){let tags=(c.tags||'').split(',').filter(Boolean).map(t=>`<span class='pill'>${esc(t.trim())}</span>`).join('');return `<div class='contact'><b>${esc(([c.first,c.last].filter(Boolean).join(' ')||c.company||'Unnamed'))}</b><span class='muted'>${esc(c.company||'')}${c.title?' · '+esc(c.title):''}</span>${c.metAt?`<div class='muted'>Met at: ${esc(c.metAt)}</div>`:''}${tags}<div class='row' style='margin-top:8px'><button class='secondary' onclick='vcard("${c.id}")'>Save to Contacts</button><button class='danger' onclick='delc("${c.id}")'>Delete</button></div></div>`}
+function renderContacts(){let d=db();$('contactList').innerHTML=d.length?d.map(card).join(''):`<div class='empty'>No contacts yet. Scan your first card.</div>`}function renderSearch(){let q=$('query').value.toLowerCase().trim(),d=db();let r=!q?d:d.filter(c=>fields.some(k=>(c[k]||'').toLowerCase().includes(q)));$('results').innerHTML=r.length?r.map(card).join(''):`<div class='empty'>No matching contacts.</div>`}$('query').oninput=renderSearch;
+window.delc=id=>{if(!confirm('Delete this contact?'))return;setdb(db().filter(c=>c.id!==id));renderContacts();renderSearch()};
+window.vcard=id=>{let c=db().find(x=>x.id===id);if(!c)return;let v=`BEGIN:VCARD\nVERSION:3.0\nN:${c.last||''};${c.first||''};;;\nFN:${[c.first,c.last].filter(Boolean).join(' ')}\nORG:${c.company||''}\nTITLE:${c.title||''}\nTEL;TYPE=WORK:${c.phone||''}\n${c.mobile?'TEL;TYPE=CELL:'+c.mobile+'\n':''}${c.direct?'TEL;TYPE=WORK:'+c.direct+'\n':''}EMAIL:${c.email||''}\nURL:${c.website||''}\nADR:;;${(c.address||'').replace(/\n/g,' ')};;;;\nNOTE:${[c.metAt,c.notes].filter(Boolean).join(' - ').replace(/\n/g,' ')}\nEND:VCARD`;let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([v],{type:'text/vcard'}));a.download=([c.first,c.last].filter(Boolean).join('_')||'contact')+'.vcf';a.click()};
+$('export').onclick=()=>{let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(db(),null,2)],{type:'application/json'}));a.download='CardScanAI-backup.json';a.click()};$('import').onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader;r.onload=()=>{try{let x=JSON.parse(r.result);if(!Array.isArray(x))throw 0;setdb(x);toast('Backup imported')}catch{toast('Invalid backup file')}};r.readAsText(f)};
+function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');
+</script></body></html>
