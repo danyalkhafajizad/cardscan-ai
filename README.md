@@ -1,1 +1,0 @@
-# cardscan-ai
