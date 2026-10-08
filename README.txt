@@ -1,0 +1,1 @@
+CardScan AI v3.3.3: OCR recovery update. When the processed image fails to detect basic contact details, retries the original camera photo and uses the stronger result. Prevents phone numbers from filling Street Address. Existing QR, duplicate detection and interface retained. Back up contacts before updating.
